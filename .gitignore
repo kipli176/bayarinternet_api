@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Virtualenv
+.env/
+.venv/
+env/
+venv/
+
+# Environment & secrets
+*.env
+!example.env
+
+# Logs
+*.log
+logs/
+*.pid
+
+# IDE & editor
+.vscode/
+.idea/
+*.swp
+
+# Byte-compiled
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Docker
+db_data/

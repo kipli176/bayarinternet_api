@@ -1,0 +1,27 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtualenv
+.venv/
+env/
+venv/
+
+# Git
+.git/
+.gitignore
+
+# Config & secrets
+*.env
+docker-compose.yml
+docker-compose.override.yml
+
+# IDE & editor
+.vscode/
+.idea/
+
+# Logs & temp
+*.log
+*.pid

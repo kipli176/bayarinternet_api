@@ -121,7 +121,7 @@ flowchart TD
     B --> C[WA Notifikasi Tagihan]
 
     C --> D[Customer Membayar]
-    D -->|via /invoices/{id}/pay| E[Update Invoice Paid + Tambah Payment]
+    D -->|via /invoices/id/pay| E[Update Invoice Paid + Tambah Payment]
     E --> F[WA Konfirmasi Pembayaran]
 
     C -->|Tidak Bayar| G[Reminder Unpaid (5 hari sebelum akhir bulan)]
