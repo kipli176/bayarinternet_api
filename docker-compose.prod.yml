@@ -19,7 +19,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: bayarinternet_worker
-    command: python app/worker/run.py
+    command: python -m app.worker.run
     restart: always
     env_file:
       - .env
