@@ -124,8 +124,8 @@ flowchart TD
     D -->|via /invoices/id/pay| E[Update Invoice Paid + Tambah Payment]
     E --> F[WA Konfirmasi Pembayaran]
 
-    C -->|Tidak Bayar| G[Reminder Unpaid (5 hari sebelum akhir bulan)]
-    G -->|Masih Unpaid| H[Suspend User (Tanggal 1 bulan berikutnya)]
+    C -->|Tidak Bayar| G[Reminder Unpaid 5 hari sebelum akhir bulan]
+    G -->|Masih Unpaid| H[Suspend User Tanggal 1 bulan berikutnya]
     H --> I[WA Notifikasi Suspend]
 
     J[Setiap tanggal 1] --> K[Generate Reseller Invoice]
