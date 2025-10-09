@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # === Konfigurasi NAS static ===
 NAS_IP = "192.168.16.1"
-NAS_SECRET = "shared_secret"   # ubah sesuai secret NAS kamu
+NAS_SECRET = "12345678"   # ubah sesuai secret NAS kamu
 NAS_COA_PORT = 3799
 
 
@@ -29,6 +29,7 @@ async def disconnect_user_sessions(username: str):
     """, (username,))
     if not sessions:
         logger.info(f"🔹 Tidak ada sesi aktif untuk user {username}")
+        print(f"🔹 Tidak ada sesi aktif untuk user {username}")
         return
 
     for s in sessions:
@@ -66,8 +67,10 @@ async def disconnect_user_sessions(username: str):
 
         if success:
             logger.info(f"✅ COA-ACK {username} ({acctsessionid}) — {result_text}")
+            print(f"✅ COA-ACK {username} ({acctsessionid}) — {result_text}")
         else:
             logger.warning(f"⚠️ COA-FAIL {username} ({acctsessionid}) — {result_text}")
+            print(f"⚠️ COA-FAIL {username} ({acctsessionid}) — {result_text}")
         await asyncio.sleep(1)  # beri jeda 1 detik antar COA
 # -------------------------------------------
 @router.delete("/sessions/{username}")
@@ -283,7 +286,7 @@ async def delete_user(user_id: str, reseller=Depends(auth_reseller_jwt)):
     await execute(
         "DELETE FROM ppp_users WHERE id=$1 AND reseller_id=$2",
         (user_id, reseller["reseller_id"]),
-    )
+    ) 
     return {}
 
 
@@ -312,7 +315,7 @@ async def change_status(user_id: str, status: str, reseller=Depends(auth_reselle
     
     if row["status"] in ("suspended", "active"):
         await disconnect_user_sessions(row["username"])
-        
+
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
     return row
