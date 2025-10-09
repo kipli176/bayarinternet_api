@@ -7,7 +7,73 @@ from app.db import fetch_one, fetch_all, execute
 from app.deps import auth_reseller_jwt, pagination
 from app.utils import new_uuid, now_tz, response_list
 
+import asyncio
+import subprocess
+import logging
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+# === Konfigurasi NAS static ===
+NAS_IP = "192.168.16.1"
+NAS_SECRET = "shared_secret"   # ubah sesuai secret NAS kamu
+NAS_COA_PORT = 3799
+
+
+# -------- Helper Disconnect --------
+async def disconnect_user_sessions(username: str):
+    """Cari sesi aktif user di radacct lalu kirim Disconnect-Request ke NAS"""
+    sessions = await fetch_all("""
+        SELECT acctsessionid, framedipaddress, callingstationid
+        FROM radacct
+        WHERE username=$1 AND acctstoptime IS NULL;
+    """, (username,))
+    if not sessions:
+        logger.info(f"🔹 Tidak ada sesi aktif untuk user {username}")
+        return
+
+    for s in sessions:
+        acctsessionid = s["acctsessionid"]
+        framed_ip = s.get("framedipaddress")
+        calling_id = s.get("callingstationid")
+
+        attrs = [
+            f"User-Name={username}",
+            f"Acct-Session-Id={acctsessionid}",
+        ]
+        if framed_ip:
+            attrs.append(f"Framed-IP-Address={framed_ip}")
+        if calling_id:
+            attrs.append(f"Calling-Station-Id={calling_id}")
+
+        data = "\n".join(attrs) + "\n"
+        cmd = ["radclient", "-x", f"{NAS_IP}:{NAS_COA_PORT}", "disconnect", NAS_SECRET]
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            text=True,
+        )
+        out, err = await proc.communicate(data)
+        success = "ACK" in out
+        result_text = out.strip() or err.strip()
+
+        await execute("""
+            INSERT INTO coa_log (username, nas_ip, result, response)
+            VALUES ($1, $2, $3, $4)
+        """, (username, NAS_IP, "success" if success else "failed", result_text))
+
+        if success:
+            logger.info(f"✅ COA-ACK {username} ({acctsessionid}) — {result_text}")
+        else:
+            logger.warning(f"⚠️ COA-FAIL {username} ({acctsessionid}) — {result_text}")
+        await asyncio.sleep(1)  # beri jeda 1 detik antar COA
+# -------------------------------------------
+@router.delete("/sessions/{username}")
+async def disconnect_session(username: str):
+    await disconnect_user_sessions(username)
+    return {"message": f"disconnect triggered for {username}"}
 
 # -------- Schemas --------
 class UserBase(BaseModel):
@@ -243,6 +309,10 @@ async def change_status(user_id: str, status: str, reseller=Depends(auth_reselle
         """,
         (user_id,),
     )
+    
+    if row["status"] in ("suspended", "active"):
+        await disconnect_user_sessions(row["username"])
+        
     if not row:
         raise HTTPException(status_code=404, detail="User not found")
     return row
