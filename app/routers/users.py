@@ -21,19 +21,19 @@ NAS_COA_PORT = 3799
 
 # -------- Helper Disconnect --------
 async def disconnect_user_sessions(username: str):
-    """Cari sesi aktif user di radacct lalu kirim Disconnect-Request ke NAS"""
+    """Cari sesi aktif user di radacct lalu kirim Disconnect-Request ke NAS yang sesuai"""
     sessions = await fetch_all("""
-        SELECT acctsessionid, framedipaddress, callingstationid
+        SELECT acctsessionid, nasipaddress, framedipaddress, callingstationid
         FROM radacct
         WHERE username=$1 AND acctstoptime IS NULL;
     """, (username,))
     if not sessions:
         logger.info(f"🔹 Tidak ada sesi aktif untuk user {username}")
-        print(f"🔹 Tidak ada sesi aktif untuk user {username}")
         return
 
     for s in sessions:
         acctsessionid = s["acctsessionid"]
+        nas_ip = s["nasipaddress"]  # ← ambil dari radacct
         framed_ip = s.get("framedipaddress")
         calling_id = s.get("callingstationid")
 
@@ -47,15 +47,20 @@ async def disconnect_user_sessions(username: str):
             attrs.append(f"Calling-Station-Id={calling_id}")
 
         data = "\n".join(attrs) + "\n"
-        cmd = ["radclient", "-x", f"{NAS_IP}:{NAS_COA_PORT}", "disconnect", NAS_SECRET]
+        cmd = ["/usr/bin/radclient", "-x", f"{nas_ip}:3799", "disconnect", NAS_SECRET]
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            text=True,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                text=True,
+            )
+        except FileNotFoundError:
+            logger.error("❌ radclient tidak ditemukan di sistem. Install freeradius-utils.")
+            return
+
         out, err = await proc.communicate(data)
         success = "ACK" in out
         result_text = out.strip() or err.strip()
@@ -63,15 +68,13 @@ async def disconnect_user_sessions(username: str):
         await execute("""
             INSERT INTO coa_log (username, nas_ip, result, response)
             VALUES ($1, $2, $3, $4)
-        """, (username, NAS_IP, "success" if success else "failed", result_text))
+        """, (username, nas_ip, "success" if success else "failed", result_text))
 
         if success:
-            logger.info(f"✅ COA-ACK {username} ({acctsessionid}) — {result_text}")
-            print(f"✅ COA-ACK {username} ({acctsessionid}) — {result_text}")
+            logger.info(f"✅ COA-ACK {username} ({acctsessionid}) @ {nas_ip} — {result_text}")
         else:
-            logger.warning(f"⚠️ COA-FAIL {username} ({acctsessionid}) — {result_text}")
-            print(f"⚠️ COA-FAIL {username} ({acctsessionid}) — {result_text}")
-        await asyncio.sleep(1)  # beri jeda 1 detik antar COA
+            logger.warning(f"⚠️ COA-FAIL {username} ({acctsessionid}) @ {nas_ip} — {result_text}")
+
 # -------------------------------------------
 @router.delete("/sessions/{username}")
 async def disconnect_session(username: str):
