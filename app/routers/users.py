@@ -11,7 +11,7 @@ import asyncio
 router = APIRouter() 
 
 # === Konfigurasi NAS static ===
-NAS_SECRET = "shared_secret"  # ganti sesuai secret NAS
+NAS_SECRET = "12345678"  # ganti sesuai secret NAS
 DEFAULT_COA_PORT = 3799
 
 async def disconnect_user_sessions(username: str):
