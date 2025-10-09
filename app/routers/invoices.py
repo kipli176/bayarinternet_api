@@ -250,6 +250,59 @@ async def print_customer_invoice(invoice_id: str, reseller=Depends(auth_reseller
 
 
 # ---------- Reseller Invoices ----------
+@router.get("/reseller-invoices/me", response_model=Dict[str, Any])
+async def list_my_reseller_invoices(
+    reseller=Depends(auth_reseller_jwt),
+    paging=Depends(pagination),
+    status: Optional[str] = Query(None, description="Filter status invoice (paid/unpaid/draft)"),
+    year: Optional[int] = Query(None, description="Filter tahun (YYYY)"),
+    month: Optional[int] = Query(None, description="Filter bulan (1-12)"),
+):
+    """
+    🔹 Ambil daftar invoice milik reseller yang sedang login.
+    Mirip list_reseller_invoices tapi otomatis pakai reseller_id dari token.
+    """
+    conditions = ["reseller_id=$1"]
+    params = [reseller["reseller_id"]]
+    idx = 2
+
+    if status:
+        conditions.append(f"status=${idx}")
+        params.append(status)
+        idx += 1
+
+    # filter tahun dan bulan opsional
+    if year:
+        conditions.append(f"EXTRACT(YEAR FROM period_start)=${idx}")
+        params.append(year)
+        idx += 1
+    if month:
+        conditions.append(f"EXTRACT(MONTH FROM period_start)=${idx}")
+        params.append(month)
+        idx += 1
+
+    where_clause = " AND ".join(conditions)
+
+    query = f"""
+        SELECT 
+            id, reseller_id, period_start, period_end, users_count, unit_price,
+            subtotal, discount, tax, total, currency, status, created_at, updated_at, meta
+        FROM invoices
+        WHERE {where_clause}
+        ORDER BY period_start DESC
+        OFFSET {paging['offset']} LIMIT {paging['limit']}
+    """
+
+    rows = await fetch_all(query, tuple(params))
+
+    total = await fetch_one(
+        f"SELECT COUNT(*) AS count FROM invoices WHERE {where_clause}",
+        tuple(params),
+    )
+
+    return response_list(rows, paging["page"], paging["per_page"], total["count"])
+
+
 @router.get("/reseller-invoices", response_model=Dict[str, Any])
 async def list_reseller_invoices(
     reseller=Depends(auth_reseller_jwt),
