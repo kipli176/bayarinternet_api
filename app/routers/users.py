@@ -21,6 +21,7 @@ class UserBase(BaseModel):
     active_until: Optional[date] = None
     status: Optional[str] = "active"   # active/suspended
     is_active: Optional[bool] = True
+    is_online: bool = False  # read-only, dari radacct.acctstoptime IS NULL
 
 
 class UserCreate(UserBase):
@@ -84,13 +85,22 @@ async def list_users(
     where_clause = " AND ".join(conditions)
 
     query = f"""
-        SELECT id, reseller_id, username, full_name, phone, email, alamat, profile_id,
-               status, active_until, is_active, created_at, updated_at
-        FROM ppp_users
+        SELECT 
+            u.id, u.reseller_id, u.username, u.full_name, u.phone, u.email, u.alamat, 
+            u.profile_id, u.status, u.active_until, u.is_active, u.created_at, u.updated_at,
+            CASE WHEN r.username IS NOT NULL THEN true ELSE false END AS is_online
+        FROM ppp_users u
+        LEFT JOIN (
+            SELECT DISTINCT ON (username) username
+            FROM radacct
+            WHERE acctstoptime IS NULL
+            ORDER BY username, acctstarttime DESC
+        ) r ON r.username = u.username
         WHERE {where_clause}
-        ORDER BY created_at DESC
+        ORDER BY u.created_at DESC
         OFFSET {paging['offset']} LIMIT {paging['limit']}
     """
+
     rows = await fetch_all(query, tuple(params))
 
     total = await fetch_one(
