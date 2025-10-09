@@ -7,19 +7,13 @@ from app.db import fetch_one, fetch_all, execute
 from app.deps import auth_reseller_jwt, pagination
 from app.utils import new_uuid, now_tz, response_list
 
-import asyncio
-import subprocess
-import logging
-router = APIRouter()
-logger = logging.getLogger(__name__)
+import asyncio  
+router = APIRouter() 
 
 # === Konfigurasi NAS static ===
-NAS_IP = "192.168.16.1"
-NAS_SECRET = "12345678"   # ubah sesuai secret NAS kamu
-NAS_COA_PORT = 3799
+NAS_SECRET = "shared_secret"  # ganti sesuai secret NAS
+DEFAULT_COA_PORT = 3799
 
-
-# -------- Helper Disconnect --------
 async def disconnect_user_sessions(username: str):
     """Cari sesi aktif user di radacct lalu kirim Disconnect-Request ke NAS yang sesuai"""
     sessions = await fetch_all("""
@@ -28,7 +22,7 @@ async def disconnect_user_sessions(username: str):
         WHERE username=$1 AND acctstoptime IS NULL;
     """, (username,))
     if not sessions:
-        logger.info(f"🔹 Tidak ada sesi aktif untuk user {username}")
+        print(f"🔹 Tidak ada sesi aktif untuk user {username}")
         return
 
     for s in sessions:
@@ -47,7 +41,7 @@ async def disconnect_user_sessions(username: str):
             attrs.append(f"Calling-Station-Id={calling_id}")
 
         data = "\n".join(attrs) + "\n"
-        cmd = ["/usr/bin/radclient", "-x", f"{nas_ip}:3799", "disconnect", NAS_SECRET]
+        cmd = ["/usr/bin/radclient", "-x", f"{nas_ip}:{DEFAULT_COA_PORT}", "disconnect", NAS_SECRET]
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -56,29 +50,29 @@ async def disconnect_user_sessions(username: str):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            out, err = await proc.communicate(data.encode())  # encode ke bytes
+            out, err = await proc.communicate(data.encode())
             out = out.decode() if out else ""
             err = err.decode() if err else ""
         except FileNotFoundError:
-            logger.error("❌ radclient tidak ditemukan. Install freeradius-utils.")
+            print("❌ radclient tidak ditemukan. Install freeradius-utils.")
             return
         except Exception as e:
-            logger.error(f"❌ Gagal menjalankan radclient: {e}")
+            print(f"❌ Gagal menjalankan radclient: {e}")
             return
 
         success = "ACK" in out
         result_text = out.strip() or err.strip()
 
+        # Simpan hasil ke DB (opsional)
         await execute("""
             INSERT INTO coa_log (username, nas_ip, result, response)
             VALUES ($1, $2, $3, $4)
         """, (username, nas_ip, "success" if success else "failed", result_text))
 
         if success:
-            logger.info(f"✅ COA-ACK {username} ({acctsessionid}) @ {nas_ip} — {result_text}")
+            print(f"✅ COA-ACK {username} ({acctsessionid}) @ {nas_ip} — {result_text}")
         else:
-            logger.warning(f"⚠️ COA-FAIL {username} ({acctsessionid}) @ {nas_ip} — {result_text}")
-
+            print(f"⚠️ COA-FAIL {username} ({acctsessionid}) @ {nas_ip} — {result_text}")
 
 # -------------------------------------------
 @router.delete("/sessions/{username}")
@@ -290,12 +284,25 @@ async def update_user(user_id: str, data: UserUpdate, reseller=Depends(auth_rese
 
 @router.delete("/users/{user_id}", status_code=204)
 async def delete_user(user_id: str, reseller=Depends(auth_reseller_jwt)):
-    # Hard delete
+    # Ambil username dulu sebelum dihapus
+    user = await fetch_one(
+        "SELECT username FROM ppp_users WHERE id=$1 AND reseller_id=$2",
+        (user_id, reseller["reseller_id"]),
+    )
+    if user:
+        username = user["username"]
+        print(f"🧩 Hapus user {username}, memutus sesi aktif...")
+        await disconnect_user_sessions(username)
+
+    # Lanjut hapus user
     await execute(
         "DELETE FROM ppp_users WHERE id=$1 AND reseller_id=$2",
         (user_id, reseller["reseller_id"]),
-    ) 
+    )
+
+    print(f"🗑️ User {username if user else user_id} berhasil dihapus.")
     return {}
+
 
 
 @router.patch("/users/{user_id}/status", response_model=UserOut)
