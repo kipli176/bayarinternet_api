@@ -33,7 +33,7 @@ async def disconnect_user_sessions(username: str):
 
     for s in sessions:
         acctsessionid = s["acctsessionid"]
-        nas_ip = s["nasipaddress"]  # ← ambil dari radacct
+        nas_ip = s["nasipaddress"]
         framed_ip = s.get("framedipaddress")
         calling_id = s.get("callingstationid")
 
@@ -55,13 +55,17 @@ async def disconnect_user_sessions(username: str):
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                text=True,
             )
+            out, err = await proc.communicate(data.encode())  # encode ke bytes
+            out = out.decode() if out else ""
+            err = err.decode() if err else ""
         except FileNotFoundError:
-            logger.error("❌ radclient tidak ditemukan di sistem. Install freeradius-utils.")
+            logger.error("❌ radclient tidak ditemukan. Install freeradius-utils.")
+            return
+        except Exception as e:
+            logger.error(f"❌ Gagal menjalankan radclient: {e}")
             return
 
-        out, err = await proc.communicate(data)
         success = "ACK" in out
         result_text = out.strip() or err.strip()
 
@@ -74,6 +78,7 @@ async def disconnect_user_sessions(username: str):
             logger.info(f"✅ COA-ACK {username} ({acctsessionid}) @ {nas_ip} — {result_text}")
         else:
             logger.warning(f"⚠️ COA-FAIL {username} ({acctsessionid}) @ {nas_ip} — {result_text}")
+
 
 # -------------------------------------------
 @router.delete("/sessions/{username}")
