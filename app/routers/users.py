@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from typing import Optional, Dict, Any
 from datetime import date, datetime
+from decimal import Decimal
 
 from app.db import fetch_one, fetch_all, execute
 from app.deps import auth_reseller_jwt, pagination
@@ -22,6 +23,8 @@ class UserBase(BaseModel):
     status: Optional[str] = "active"   # active/suspended
     is_active: Optional[bool] = True
     is_online: bool = False  # read-only, dari radacct.acctstoptime IS NULL
+    profile_name: Optional[str] = None
+    profile_price: Optional[Decimal] = None
 
 
 class UserCreate(UserBase):
@@ -88,6 +91,8 @@ async def list_users(
         SELECT 
             u.id, u.reseller_id, u.username, u.full_name, u.phone, u.email, u.alamat, 
             u.profile_id, u.status, u.active_until, u.is_active, u.created_at, u.updated_at,
+            p.name AS profile_name,
+            p.price AS profile_price,
             CASE WHEN r.username IS NOT NULL THEN true ELSE false END AS is_online
         FROM ppp_users u
         LEFT JOIN (
@@ -96,10 +101,12 @@ async def list_users(
             WHERE acctstoptime IS NULL
             ORDER BY username, acctstarttime DESC
         ) r ON r.username = u.username
+        LEFT JOIN ppp_profiles p ON u.profile_id = p.id
         WHERE {where_clause}
         ORDER BY u.created_at DESC
         OFFSET {paging['offset']} LIMIT {paging['limit']}
     """
+
 
     rows = await fetch_all(query, tuple(params))
 
