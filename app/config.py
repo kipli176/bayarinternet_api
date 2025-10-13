@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # Auth Config
     USE_JWT: bool = True
     DEFAULT_RESELLER_ID: str = "00000000-0000-0000-0000-000000000000"
+    # Payment Gateway -
+    DUITKU_MERCHANT_CODE: str
+    DUITKU_API_KEY: str
 
     class Config:
         env_file = ".env"

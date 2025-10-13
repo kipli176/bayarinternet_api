@@ -4,9 +4,14 @@ from typing import Optional
 from app.db import fetch_all, fetch_one, execute
 from app.deps import auth_reseller_jwt
 from app.utils import now_tz, send_wa_message
+from app.config import get_settings
+import hashlib
 
 router = APIRouter(tags=["Payments"])
 
+settings = get_settings()
+DUITKU_MERCHANT_CODE = settings.DUITKU_MERCHANT_CODE
+DUITKU_API_KEY = settings.DUITKU_API_KEY
 
 # ---------------------------
 # GET /payments
@@ -143,39 +148,27 @@ async def payment_webhook(request: Request):
 
     # Deteksi apakah callback dari Duitku
     if "merchantOrderId" in payload:
-        # === Callback Duitku ===
-        merchant_code = "DS12345"  # Ganti dengan merchantCode kamu
-        api_key = "abc123def456ghi789"  # Ganti dengan apiKey kamu
-
         merchant_order_id = payload.get("merchantOrderId")
         amount = payload.get("amount")
         result_code = payload.get("resultCode")
         signature = payload.get("signature")
 
         # Verifikasi signature Duitku
-        import hashlib
-        raw_signature = f"{merchant_code}{merchant_order_id}{amount}{api_key}"
+        raw_signature = f"{DUITKU_MERCHANT_CODE}{merchant_order_id}{amount}{DUITKU_API_KEY}"
         signature_check = hashlib.md5(raw_signature.encode()).hexdigest()
 
         if signature != signature_check:
             raise HTTPException(status_code=403, detail="Invalid signature")
 
         # Mapping resultCode Duitku ke status lokal
-        # "00" = sukses, lainnya gagal/pending
-        if result_code == "00":
-            status = "success"
-        elif result_code in ("01", "02"):
-            status = "pending"
-        else:
-            status = "failed"
-
+        status = "success" if result_code == "00" else "failed"
         provider = "duitku"
         txn_id = payload.get("reference") or payload.get("paymentCode") or merchant_order_id
         invoice_id = merchant_order_id
         paid_at = now_tz()
 
     else:
-        # === Webhook dari provider lain (format umum kamu) ===
+        # Format umum webhook provider lain
         provider = payload.get("provider")
         txn_id = payload.get("txn_id")
         invoice_id = payload.get("invoice_id")
