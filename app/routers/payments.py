@@ -135,24 +135,60 @@ async def create_payment(payload: dict, reseller=Depends(auth_reseller_jwt)):
 
 
 # ---------------------------
-# POST /payments/webhook
+# POST /payments/webhook (termasuk callback Duitku)
 # ---------------------------
 @router.post("/payments/webhook")
 async def payment_webhook(request: Request):
     payload = await request.json()
 
-    provider = payload.get("provider")
-    txn_id = payload.get("txn_id")
-    invoice_id = payload.get("invoice_id")
-    amount = payload.get("amount")
-    status = payload.get("status", "pending")
-    paid_at = payload.get("paid_at") or now_tz()
+    # Deteksi apakah callback dari Duitku
+    if "merchantOrderId" in payload:
+        # === Callback Duitku ===
+        merchant_code = "DS12345"  # Ganti dengan merchantCode kamu
+        api_key = "abc123def456ghi789"  # Ganti dengan apiKey kamu
 
+        merchant_order_id = payload.get("merchantOrderId")
+        amount = payload.get("amount")
+        result_code = payload.get("resultCode")
+        signature = payload.get("signature")
+
+        # Verifikasi signature Duitku
+        import hashlib
+        raw_signature = f"{merchant_code}{merchant_order_id}{amount}{api_key}"
+        signature_check = hashlib.md5(raw_signature.encode()).hexdigest()
+
+        if signature != signature_check:
+            raise HTTPException(status_code=403, detail="Invalid signature")
+
+        # Mapping resultCode Duitku ke status lokal
+        # "00" = sukses, lainnya gagal/pending
+        if result_code == "00":
+            status = "success"
+        elif result_code in ("01", "02"):
+            status = "pending"
+        else:
+            status = "failed"
+
+        provider = "duitku"
+        txn_id = payload.get("reference") or payload.get("paymentCode") or merchant_order_id
+        invoice_id = merchant_order_id
+        paid_at = now_tz()
+
+    else:
+        # === Webhook dari provider lain (format umum kamu) ===
+        provider = payload.get("provider")
+        txn_id = payload.get("txn_id")
+        invoice_id = payload.get("invoice_id")
+        amount = payload.get("amount")
+        status = payload.get("status", "pending")
+        paid_at = payload.get("paid_at") or now_tz()
+
+    # Pastikan invoice ada
     invoice = await fetch_one("SELECT * FROM customer_invoices WHERE id=$1", (invoice_id,))
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
 
-    # cek existing
+    # Cek apakah payment sudah ada
     existing = await fetch_one("SELECT * FROM payments WHERE provider_txn_id=$1", (txn_id,))
     if existing:
         await execute(
@@ -171,7 +207,7 @@ async def payment_webhook(request: Request):
         row = await fetch_one("SELECT id FROM payments WHERE provider_txn_id=$1", (txn_id,))
         payment_id = row["id"]
 
-    # update invoice + kirim WA
+    # Update status invoice & kirim WA kalau sukses
     if status == "success":
         await execute(
             "UPDATE customer_invoices SET status='paid', paid_at=$1, updated_at=$2 WHERE id=$3",
@@ -187,4 +223,13 @@ async def payment_webhook(request: Request):
                 text=f"Pembayaran invoice {invoice_id} via {provider} berhasil. Terima kasih {user['username']}!"
             )
 
+    # Log untuk debugging (opsional)
+    with open("duitku-webhook-log.txt", "a") as f:
+        f.write(f"{now_tz()} | {provider} | {invoice_id} | {status}\n")
+
+    # Duitku butuh respons "SUCCESS" agar tidak mengulang callback
+    if provider == "duitku":
+        return {"status": "SUCCESS"}
+
     return {"message": "Webhook processed", "payment_id": payment_id, "status": status}
+
