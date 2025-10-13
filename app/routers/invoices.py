@@ -250,6 +250,8 @@ async def print_customer_invoice(invoice_id: str, reseller=Depends(auth_reseller
 
 
 # ---------- Reseller Invoices ----------
+# GET /reseller-invoices/me?status=unpaid&year=2025&month=10
+
 @router.get("/reseller-invoices/me", response_model=Dict[str, Any])
 async def list_my_reseller_invoices(
     reseller=Depends(auth_reseller_jwt),
